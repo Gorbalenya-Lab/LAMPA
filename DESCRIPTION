@@ -1,0 +1,19 @@
+Package: LAMPA
+Title: LArge Multidomain Protein Annotator
+Version: 1.0.0
+Author: Anastasia A. Gulyaeva, Andrey I. Sigorskih, Elena S. Ocheredko,
+    Alexander E. Gorbalenya
+Description: Functional annotation of large multidomain proteins by
+    iterative HH-suite-based procedure. The procedure utilizes fragments
+    of a large multidomain protein sequence as queries to profile
+    databases. It allows to avoid underestimation of statistical support
+    that is often observed when standard tools are used to annotate large
+    multidomain proteins.
+License: GPL (>=2)
+Encoding: UTF-8
+LazyData: true
+SystemRequirements: HH-suite, TMHMM
+Imports: seqinr, IRanges
+RoxygenNote: 6.1.1
+NeedsCompilation: no
+Packaged: 2019-08-11 14:29:56 UTC; agulyaeva

@@ -1,0 +1,124 @@
+#' LArge Multidomain Protein Annotator
+#'
+#' @name LAMPA
+#'
+#' @description Conducts iterative HH-suite-based annotation procedure for a specified query protein sequence using specified target database(s).
+#'
+#' @param seqF character string. FASTA file containing query sequence.
+#' @param DBs named list: elements, paths to databases; names, names of databases.
+#' @param hhmakepath character string. HHmake executable. HHmake will be run with \code{-M first} argument.
+#' @param hhsearchpath character string. HHsearch executable.
+#' @param addsspath character string. Script addss.pl (from HH-suite software package) executable. If specified, secondary structure of the query sequence will be predicted and included into query profiles. Script will be run with \code{-fas} argument.
+#' @param tmhmmpath character string. TMHMM executable. If specified, transmembrane helices of the query sequence will be predicted and taken into account while delineating query sequence fragments to be analysed on second HH-suite-based iteration.
+#' @param out_path character string. Destination where output folder will be placed. Working directory by default.
+#' @param out_name character string. Name of the output folder. If NULL, \code{seqF} filename without path and extension. If a folder with this name already exists at the selected destination, it will be deleted.
+#' @param tm_gap integer value. Transmembrane helices separated by less than \code{tm_gap} amino acids will be clustered.
+#' @param qp_len integer value. Minimal length of query sequence fragments that will be analysed during the QP-specific iterations. Shorter query sequence fragments will be discarded.
+#' @param ap_len integer value. Length of query sequence fragments that will be analysed during the AP-specific iterations.
+#' @param P numeric value. Probability threshold: only hits characterised by Probability above \code{P} will be considered.
+#' @param E numeric value. E-value threshold: only hits characterised by E-value below \code{E} will be considered.
+#' @param L integer value. Length threshold: only hits longer than \code{L} (in residues of the query sequence) will be considered.
+#' @param cpu integer value. Number of CPUs to be used by HHsearch.
+#'
+#' @details
+#' Protein annotation procedure consists of the following stages:
+#'
+#' 0. \emph{Transmembrane (TM) regions prediction.} TM helices are predicted by TMHMM. TM helices separated by a distance less than \code{tm_gap} are grouped into TM clusters.
+#'
+#' 1. \emph{Application of HHsearch to the whole-length protein sequence.} This is the first iteration of the homology annotation procedure. On every iteration HHsearch hits are filtered: only hits satisfying \code{P}, \code{E} and \code{L} thresholds are retained for consideration. Retained hits are clustered if they overlap, and the hit characterised by the highest Probability value in its cluster is reported as domain annotation.
+#'
+#' 2. \emph{Query-protein-specific (QP-specific) iterations.} Initially, protein is split into fragments by clusters of hits obtained on the first iteration, as well as clusters of TM helices, followed by application of HHsearch to the delineated fragments. On each subsequent iteration, protein is further split by the clusters of hits obtained on preceding iteration, and HHsearch is applied to the delineated fragments. The procedure is repeated until iteration when no hits, satisfying \code{P}, \code{E} and \code{L} thresholds, are identified. Only query sequence fragments whose length is above or equal to \code{qp_len} are considered.
+#'
+#' 3. \emph{Average-protein-size-specific (AP-specific) iterations.} Query regions from previous iterations, for which no annotations were obtained (whole protein sequence is considered only if there were neither TM, nor homology annotations obtained for it), are split into fragments of equal length \code{ap_len}, starting from the N-terminus (first AP-specific iteration) and the N-terminus with \code{ap_len\%/\%2} inset (second AP-specific iteration). The most C-terminal fragments are extended to include the remaining part of the region under consideration, if the remaining part is shorter than \code{ap_len\%/\%2} and if the extended fragment does not cover the entire region under consideration. HHsearch is applied to the delineated fragments.
+#'
+#' Output of the function is placed into directory \code{out_path/out_name/}. Output consists of the following:
+#' \itemize{
+#' \item Plot summarising obtained annotation, \code{<query ID>_annotation_plot.pdf}:
+#' 	\itemize{
+#' 	\item black numbers, iterations
+#' 	\item grey bars, fragments of query sequence
+#' 	\item red lines, clusters of predicted TM helices
+#' 	\item red numbers, indices of clusters of predicted TM helices
+#' 	\item blue lines, clusters of hits
+#' 	\item blue numbers, indices of clusters of hits
+#' 	}
+#' \item Table summarising TM predictions, \code{<query ID>_TM.tsv}\cr
+#' Each row of the table corresponds to a predicted TM helix, table has the following columns:
+#' 	\itemize{
+#' 	\item \code{tm_helix_from}, \code{tm_helix_to}, coordinates of a TM helix
+#' 	\item \code{tm_cl_index}, index of the cluster to which TM helix belongs
+#' 	}
+#' \item Table summarising homology annotations, \code{<query ID>_annotation_table.tsv}\cr
+#' Each row of the table corresponds to a cluster of hits, table has the following columns:
+#' 	\itemize{
+#' 	\item \code{q_id}, query sequence ID
+#' 	\item \code{q_from}, \code{q_to} and \code{q_len}, coordinates and length of the analysed query sequence fragment (in residues of the query sequence)
+#' 	\item \code{iterat_num}, iteration number
+#' 	\item \code{iterat_type}, iteration type (stage): 1 = 1st iteration, 2 = QP-specific iteration and 3 = AP-specific iteration
+#' 	\item \code{cl_index}, index of a cluster of hits
+#' 	\item \code{cl_from}, \code{cl_to} and \code{cl_len}, coordinates and length of the cluster (in residues of the query sequence)
+#' 	\item \code{DB}, target database
+#' 	\item \code{Hit}, ID of the target profile that yielded top-scoring hit of the cluster
+#' 	\item \code{Prob}, \code{E_value} and \code{Score}, statistics characterising the top-scoring hit
+#' 	\item \code{h_from}, \code{h_to} and \code{h_len}, coordinates and length of the top-scoring hit in residues of the query sequence
+#' 	\item \code{TemplateHMM}, coordinates of the top-scoring hit in match states of the target profile (profile length is specified in parentheses)
+#' 	}
+#' \item Files with information about hits constituting each cluster:\cr
+#' table - \code{<query ID>_hits_cluster_<cluster ID>.tsv},\cr
+#' alignments - \code{<query ID>_hits_cluster_<cluster ID>_alignments.txt}
+#' \item Folder \code{utility_data/} that contains raw data generated by the procedure.
+#' }
+#'
+#' @examples
+#' LAMPA(
+#'           seqF = '/path1/query_pp.fasta',
+#'           DBs  = list(pfam = '/path2/pfamA_28.0_hhm_db',
+#'                       pdb  = '/path3/pdb70_06Sep14_hhm_db'),
+#'           hhmakepath   = 'hhmake',
+#'           hhsearchpath = 'hhsearch -p 0 -norealign -alt 10',
+#'           addsspath    = 'addss.pl',
+#'           tmhmmpath    = 'tmhmm'
+#' )
+#'
+#' @export
+
+
+LAMPA <- function(seqF, DBs, hhmakepath, hhsearchpath, addsspath=NULL, tmhmmpath=NULL,
+                out_path='.', out_name=NULL, tm_gap=100, qp_len=1, ap_len=300, P=95, E=10, L=50, cpu=1) {
+
+	# check if input/output files/destinations exist
+	if (!file.exists(seqF)) { stop(paste('File', seqF, 'does not exist!')) }
+
+	for (i in seq_along(DBs)) {
+		if (!file.exists(DBs[[i]])) { stop(paste('Database', DBs[[i]], 'does not exist!')) }
+	}
+
+	if (!file.exists(out_path)) { stop(paste('Destination', out_path, 'does not exist!')) }
+
+
+	# convert paths to input/output files/destinations into absolute paths
+	seqF <- normalizePath(seqF)
+	for (x in names(DBs)) { DBs[[x]] <- normalizePath(DBs[[x]]) }
+	out_path <- normalizePath(out_path)
+
+
+	# save path to current working directory
+	curdir <- getwd()
+
+
+	# set output folder as working directory
+	if (is.null(out_name)) { out_name <- sub("\\.[^\\.]+$", "", basename(seqF)) }
+	out_dir <- paste0(out_path, '/', out_name)
+
+	if (file.exists(out_dir)) { unlink(out_dir, recursive=TRUE) }
+	dir.create(out_dir)
+	setwd(out_dir)
+
+
+	# run annotation procedure
+	iterative_procedure(seqF, DBs, hhmakepath, hhsearchpath, addsspath, tmhmmpath, tm_gap, qp_len, ap_len, P, E, L, cpu)
+
+
+	# restore working directory
+	setwd(curdir)
+}
